@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -20,7 +19,7 @@ type Config struct {
 func NewConfig() *Config {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "1081"
 		log.Printf("Port not specified, defaulting to %s", port)
 	}
 	return &Config{
@@ -60,59 +59,42 @@ func (app *Application) Run() error {
 	return nil
 }
 
-type Response struct {
+type Request struct {
 	Expression string `json:"expression"`
 }
 
+type Response struct {
+	Result string `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
 func ExpressionHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
-		expression := r.URL.Query().Get("expression")
-
-		result, err := calc.Calc(expression)
-		if err != nil {
-			http.Error(w, "Error occurred while calculating the expression", http.StatusBadRequest)
-			log.Printf("Error occurred while calculating the expression: %s. Error: %s\n", expression, err)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, err = w.Write([]byte(fmt.Sprintf("%.2f", result)))
-		if err != nil {
-			http.Error(w, "Error occurred while sending the response", http.StatusInternalServerError)
-			log.Printf("Error occurred while sending the response: %s\n", err)
-			return
-		}
-	} else if r.Method == http.MethodPost {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "Error occurred while reading request body", http.StatusInternalServerError)
-			log.Printf("Error occurred while reading request body: %s\n", err)
-			return
-		}
-		defer r.Body.Close()
-
-		var response Response
-		if err := json.Unmarshal(body, &response); err != nil {
-			http.Error(w, "Error occurred while parsing JSON element", http.StatusBadRequest)
-			log.Printf("Error occurred while parsing JSON element: %s\n", err)
-			return
-		}
-
-		result, err := calc.Calc(response.Expression)
-		if err != nil {
-			http.Error(w, "Error occurred while calculating the expression", http.StatusBadRequest)
-			log.Printf("Error occurred while calculating the expression: %s\n", err)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, err = w.Write([]byte(fmt.Sprintf("%.2f", result)))
-		if err != nil {
-			http.Error(w, "Error occurred while sending the response", http.StatusInternalServerError)
-			log.Printf("Error occurred while sending the response: %s\n", err)
-			return
-		}
-	} else {
-		http.Error(w, "Only POST and GET methods are allowed", http.StatusMethodNotAllowed)
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error": "Only POST method is allowed"}`, http.StatusMethodNotAllowed)
 		return
+	}
+
+	var req Request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error": "Invalid request format"}`, http.StatusUnprocessableEntity)
+		log.Printf("Error parsing request body: %s\n", err)
+		return
+	}
+
+	result, err := calc.Calc(req.Expression)
+	if err != nil {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		resp := Response{Error: "Expression is not valid"}
+		json.NewEncoder(w).Encode(resp)
+		log.Printf("Invalid expression: %s. Error: %s\n", req.Expression, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	resp := Response{Result: fmt.Sprintf("%.2f", result)}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, `{"error": "Internal server error"}`, http.StatusInternalServerError)
+		log.Printf("Error encoding response: %s\n", err)
 	}
 }
 
@@ -148,7 +130,7 @@ func LoggingMiddleWare(handlerFunc http.HandlerFunc) http.HandlerFunc {
 func (app *Application) StartServer() {
 	mux := http.NewServeMux()
 	handler := LoggingMiddleWare(ExpressionHandler)
-	mux.Handle("/expression", handler)
+	mux.Handle("/api/v1/calculate", handler)
 
 	port := app.config.Port
 	log.Printf("Starting server on port %s", port)

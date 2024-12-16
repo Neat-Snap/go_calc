@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 
 	calc "github.com/Neat-Snap/go_calc/pkg/calculation"
 )
@@ -20,35 +23,15 @@ func mockCalc(expression string) (float64, error) {
 	return 0, fmt.Errorf("invalid expression")
 }
 
-func TestExpressionHandler_GET(t *testing.T) {
-	originalCalc := calcFunc
-	calcFunc = mockCalc
-	defer func() { calcFunc = originalCalc }()
-	req := httptest.NewRequest(http.MethodGet, "/expression?expression=2%2B2", nil)
-	w := httptest.NewRecorder()
-
-	ExpressionHandler(w, req)
-
-	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status %d; got %d", http.StatusOK, resp.StatusCode)
-	}
-
-	expected := "4.00"
-	body := w.Body.String()
-	if body != expected {
-		t.Errorf("expected body %s; got %s", expected, body)
-	}
-}
-
 func TestExpressionHandler_POST(t *testing.T) {
 	originalCalc := calcFunc
 	calcFunc = mockCalc
 	defer func() { calcFunc = originalCalc }()
-	requestBody := Response{Expression: "2+2"}
+
+	requestBody := Request{Expression: "2+2"}
 	body, _ := json.Marshal(requestBody)
 
-	req := httptest.NewRequest(http.MethodPost, "/expression", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/calculate", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -59,10 +42,14 @@ func TestExpressionHandler_POST(t *testing.T) {
 		t.Fatalf("expected status %d; got %d", http.StatusOK, resp.StatusCode)
 	}
 
+	var response Response
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response body: %s", err)
+	}
+
 	expected := "4.00"
-	responseBody := w.Body.String()
-	if responseBody != expected {
-		t.Errorf("expected body %s; got %s", expected, responseBody)
+	if response.Result != expected {
+		t.Errorf("expected result %s; got %s", expected, response.Result)
 	}
 }
 
@@ -83,14 +70,22 @@ func TestLoggingMiddleware(t *testing.T) {
 	}
 
 	expected := "test response"
-	body := w.Body.String()
-	if body != expected {
-		t.Errorf("expected body %s; got %s", expected, body)
+	body, _ := io.ReadAll(w.Body)
+	if string(body) != expected {
+		t.Errorf("expected body %s; got %s", expected, string(body))
 	}
 }
 
 func TestApplication_Run(t *testing.T) {
 	app := New()
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+
+	r, w, _ := os.Pipe()
+	os.Stdin = r
+	fmt.Fprintln(w, "exit")
+	w.Close()
+
 	err := app.Run()
 	if err != nil {
 		t.Errorf("Run() returned an error: %s", err)
@@ -101,26 +96,45 @@ func TestApplication_StartServer(t *testing.T) {
 	originalCalc := calcFunc
 	calcFunc = mockCalc
 	defer func() { calcFunc = originalCalc }()
+
+	os.Setenv("PORT", "8080")
 	app := New()
 	go func() {
 		app.StartServer()
 	}()
-	defer func() {
-	}()
-	resp, err := http.Get("http://localhost:8080/expression?expression=2%2B2")
+	time.Sleep(1 * time.Second)
+
+	client := &http.Client{}
+	requestBody := Request{Expression: "2+2"}
+	body, _ := json.Marshal(requestBody)
+
+	req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/api/v1/calculate", bytes.NewReader(body))
 	if err != nil {
-		t.Fatalf("failed to make GET request: %s", err)
+		t.Fatalf("failed to create POST request: %s", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to make POST request: %s", err)
+	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected status %d; got %d", http.StatusOK, resp.StatusCode)
 	}
+
+	var response Response
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response body: %s", err)
+	}
+
 	expected := "4.00"
-	buf := new(bytes.Buffer)
-	_, err = buf.ReadFrom(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read response body: %s", err)
+	if response.Result != expected {
+		t.Errorf("expected result %s; got %s", expected, response.Result)
 	}
-	if buf.String() != expected {
-		t.Errorf("expected response body %s; got %s", expected, buf.String())
-	}
+}
+
+func equalJSON(a, b map[string]interface{}) bool {
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }

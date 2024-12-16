@@ -1,38 +1,109 @@
-# Calculation server on Golang
+# Calculator Web Service
 
-_This project was created as a final task for the first sprint in Yandex Lyceum Golang educational program._
-# Usage
+Этот проект предоставляет веб-сервис для вычисления арифметических выражений, отправленных пользователем через HTTP. 
 
-### Specify the port (optional)
-Specify the port you want to run the server on by setting the "PORT" environment variable to the needed value. If not specified, the server will be running on 8080.
-### Run the server
-To run the application install dependencies (Golang (1.2 or higher recommended)) and type:
-```bash
-    go run cmd/main.go
-```
+## Описание
 
-You will see something like this:
-```
-2024/11/22 20:40:07 Port not specified, defaulting to 8080
-2024/11/22 20:40:07 Starting server on port 8080
-```
+Пользователь отправляет POST-запрос с арифметическим выражением на URL `/api/v1/calculate`, и в ответ получает результат вычисления. 
 
-## Calculations
-To calculate a problem you can use GET method with url query parameter or POST method.
-### Get
-To calculate using GET method and url query parameters you can use the following command:
-```
-127.0.0.1:8080/expression/?expression=your_expression
-```
+Программа поддерживает следующие возможности:
+- Арифметические операции: `+`, `-`, `*`, `/`
+- Целые и дробные числа
+- Обработка приоритета операций с классическими арифметическими знаками, а также скобками ("(" и ")")
+- Возвращает результат в случае успешного вычисления
+- Обрабатывает ошибки с понятными HTTP-ответами
 
-_Notice that in this method instead of "+" sign you have to use "%2B" because of how urls are interpreted_
-### Post
-To calculate using POST method you will have to send a request to the following url:
-```
-127.0.0.1:8080/expression
-```
-and provide the requests with the payload. For example like this:
+## Эндпоинт
+
+### POST /api/v1/calculate
+
+#### Запрос
+Тело запроса должно содержать JSON с ключом `expression`, содержащим строку с арифметическим выражением:
 ```json
-{"expression":"your_expression"}
+{
+    "expression": "2+2*2"
+}
 ```
-In comparison with previous method, here you can use "+" sign as usual.
+#### Ответы
+1. **Успешное вычисление (200 OK):**
+```json
+{
+    "result": "6"
+}
+```
+
+2. **Некорректное выражение (422 Unprocessable Entity):**
+```json
+{
+    "error": "Expression is not valid"
+}
+```
+
+3. **Внутренняя ошибка сервера (500 Internal Server Error):**
+```json
+{
+    "error": "Internal server error"
+}
+```
+
+## Примеры использования
+
+### Пример cURL запроса
+```bash
+curl --location 'http://localhost:8080/api/v1/calculate' \
+--header 'Content-Type: application/json' \
+--data '{
+  "expression": "2+2*2"
+}'
+```
+Ответ:
+```json
+{
+    "result": "6"
+}
+```
+
+### Некорректное выражение
+```bash
+curl --location 'http://localhost:8080/api/v1/calculate' \
+--header 'Content-Type: application/json' \
+--data '{
+  "expression": "2+2*"
+}'
+```
+Ответ:
+```json
+{
+    "error": "Expression is not valid"
+}
+```
+
+### Внутренняя ошибка сервера
+```bash
+curl --location 'http://localhost:8080/api/v1/calculate' \
+--header 'Content-Type: application/json' \
+--data '{
+  "expression": ""
+}'
+```
+Ответ:
+```json
+{
+    "error": "Internal server error"
+}
+```
+
+## Установка и запуск
+
+1. Убедитесь, что у вас установлен Go версии 1.20 или выше.
+2. Склонируйте репозиторий:
+    ```bash
+    git clone https://github.com/ваш-логин/calculator-service.git
+    cd calculator-service
+    ```
+3. Запустите сервис:
+    ```bash
+    go run ./cmd/main.go
+    ```
+
+Сервис будет запущен по адресу `http://localhost` на порте, указанном в переменной среды "PORT". Значение порта по умолчанию - 1081.
