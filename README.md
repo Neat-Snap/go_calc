@@ -98,8 +98,8 @@ curl --location 'http://localhost:8080/api/v1/calculate' \
 1. Убедитесь, что у вас установлен Go версии 1.20 или выше.
 2. Склонируйте репозиторий:
     ```bash
-    git clone https://github.com/ваш-логин/calculator-service.git
-    cd calculator-service
+    git clone https://github.com/Neat-Snap/go_calc.git
+    cd go_calc
     ```
 3. Запустите сервис:
     ```bash
